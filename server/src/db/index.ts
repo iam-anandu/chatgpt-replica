@@ -1,74 +1,61 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from '../config.js';
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
+mkdirSync(config.uploadsDir, { recursive: true });
 
 export const db = new DatabaseSync(config.dbPath);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
 
-export interface ConversationRow {
-  id: string;
-  title: string;
-  project_id: string | null;
-  pinned: number;
-  archived: number;
-  created_at: number;
-  updated_at: number;
+function addColumn(table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
-export interface MessageRow {
-  id: string;
-  conversation_id: string;
-  parent_id: string | null;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  model: string | null;
-  created_at: number;
+addColumn('conversations', 'current_node_id', 'TEXT');
+addColumn('conversations', 'temporary', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('messages', 'meta', 'TEXT');
+addColumn('messages', 'feedback', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('files', 'conversation_id', 'TEXT REFERENCES conversations(id) ON DELETE SET NULL');
+addColumn('files', 'source', "TEXT NOT NULL DEFAULT 'upload'");
+addColumn('files', 'size', 'INTEGER NOT NULL DEFAULT 0');
+
+// Temporary chats never outlive a server session.
+db.exec('DELETE FROM conversations WHERE temporary = 1');
+
+export const all = <T>(sql: string, ...params: SQLInputValue[]) =>
+  db.prepare(sql).all(...params) as unknown as T[];
+
+export const get = <T>(sql: string, ...params: SQLInputValue[]) =>
+  db.prepare(sql).get(...params) as unknown as T | undefined;
+
+export const run = (sql: string, ...params: SQLInputValue[]) => db.prepare(sql).run(...params);
+
+export const newId = () => crypto.randomUUID();
+
+export function toBlob(vector: number[]): Uint8Array {
+  return new Uint8Array(new Float32Array(vector).buffer);
 }
 
-export function listConversations(): ConversationRow[] {
-  return db
-    .prepare('SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC')
-    .all() as unknown as ConversationRow[];
+export function fromBlob(blob: Uint8Array | null): Float32Array | null {
+  if (!blob) return null;
+  const copy = new Uint8Array(blob);
+  return new Float32Array(copy.buffer, 0, copy.byteLength / 4);
 }
 
-export function getConversation(id: string): ConversationRow | undefined {
-  return db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as unknown as
-    | ConversationRow
-    | undefined;
-}
-
-export function createConversation(title: string): ConversationRow {
-  const now = Date.now();
-  const id = crypto.randomUUID();
-  db.prepare(
-    'INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)',
-  ).run(id, title, now, now);
-  return getConversation(id)!;
-}
-
-export function deleteConversation(id: string): void {
-  db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
-}
-
-export function listMessages(conversationId: string): MessageRow[] {
-  return db
-    .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, rowid')
-    .all(conversationId) as unknown as MessageRow[];
-}
-
-export function addMessage(
-  msg: Pick<MessageRow, 'conversation_id' | 'parent_id' | 'role' | 'content' | 'model'>,
-): MessageRow {
-  const now = Date.now();
-  const id = crypto.randomUUID();
-  db.prepare(
-    `INSERT INTO messages (id, conversation_id, parent_id, role, content, model, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, msg.conversation_id, msg.parent_id, msg.role, msg.content, msg.model, now);
-  db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, msg.conversation_id);
-  return { ...msg, id, created_at: now };
+export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
 }

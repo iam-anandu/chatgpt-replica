@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS files (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS file_chunks (
+  id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  embedding BLOB
+);
+
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
@@ -66,4 +74,23 @@ CREATE TABLE IF NOT EXISTS usage (
   output_tokens INTEGER NOT NULL DEFAULT 0,
   images INTEGER NOT NULL DEFAULT 0,
   audio_seconds INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS canvases (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('document', 'code')),
+  language TEXT,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS canvas_versions (
+  id TEXT PRIMARY KEY,
+  canvas_id TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at INTEGER NOT NULL
 );

@@ -1,18 +1,64 @@
 @import 'tailwindcss';
+@import 'katex/dist/katex.min.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
-  --color-main: #0f0f0f;
-  --color-sidebar: #171717;
-  --color-surface: #2a2a2a;
-  --color-surface-hover: #212121;
-  --color-composer: #262626;
-  --color-border-subtle: #2e2e2e;
-  --color-text-primary: #ececec;
-  --color-text-secondary: #b4b4b4;
-  --color-text-tertiary: #8f8f8f;
+  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --color-main: var(--bg-main);
+  --color-sidebar: var(--bg-sidebar);
+  --color-surface: var(--bg-surface);
+  --color-surface-hover: var(--bg-surface-hover);
+  --color-composer: var(--bg-composer);
+  --color-popover: var(--bg-popover);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
   --color-accent: #2f6fe0;
-  --color-user-bubble: #2a2a2a;
+  --color-user-bubble: var(--bg-user-bubble);
+  --color-inverse: var(--bg-inverse);
+  --color-on-inverse: var(--text-on-inverse);
+}
+
+:root,
+.dark {
+  --bg-main: #0f0f0f;
+  --bg-sidebar: #171717;
+  --bg-surface: #2a2a2a;
+  --bg-surface-hover: #212121;
+  --bg-composer: #262626;
+  --bg-popover: #2a2a2a;
+  --bg-user-bubble: #2a2a2a;
+  --bg-code: #171717;
+  --bg-inverse: #ffffff;
+  --text-on-inverse: #000000;
+  --border-subtle: #2e2e2e;
+  --text-primary: #ececec;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #8f8f8f;
+  --link: #7ab7ff;
+  color-scheme: dark;
+}
+
+.light {
+  --bg-main: #ffffff;
+  --bg-sidebar: #f9f9f9;
+  --bg-surface: #ececec;
+  --bg-surface-hover: #f0f0f0;
+  --bg-composer: #ffffff;
+  --bg-popover: #ffffff;
+  --bg-user-bubble: #f0f0f0;
+  --bg-code: #f6f6f6;
+  --bg-inverse: #0d0d0d;
+  --text-on-inverse: #ffffff;
+  --border-subtle: #e5e5e5;
+  --text-primary: #0d0d0d;
+  --text-secondary: #5d5d5d;
+  --text-tertiary: #8f8f8f;
+  --link: #2964d9;
+  color-scheme: light;
 }
 
 html,
@@ -23,19 +69,28 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-main);
-  color: var(--color-text-primary);
+  background: var(--bg-main);
+  color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: #3a3a3a transparent;
+  scrollbar-color: color-mix(in srgb, var(--text-tertiary) 40%, transparent) transparent;
 }
 
+.light .composer-shadow {
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08), 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+.dark .composer-shadow {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+/* Markdown */
 .markdown {
   line-height: 1.75;
+  overflow-wrap: anywhere;
 }
 .markdown > * + * {
   margin-top: 0.9em;
@@ -52,6 +107,9 @@ body {
   font-size: 1.15em;
   font-weight: 600;
 }
+.markdown strong {
+  font-weight: 600;
+}
 .markdown ul {
   list-style: disc;
   padding-left: 1.5em;
@@ -60,62 +118,167 @@ body {
   list-style: decimal;
   padding-left: 1.5em;
 }
-.markdown li + li {
+.markdown li + li,
+.markdown li > ul,
+.markdown li > ol {
   margin-top: 0.3em;
 }
 .markdown a {
-  color: #7ab7ff;
+  color: var(--link);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.markdown code {
-  background: #2f2f2f;
+.markdown :not(pre) > code {
+  background: var(--bg-surface);
   border-radius: 0.3em;
   padding: 0.15em 0.35em;
   font-size: 0.875em;
-}
-.markdown pre {
-  background: #171717;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 0.75em;
-  padding: 1em;
-  overflow-x: auto;
+  font-family: var(--font-mono);
 }
 .markdown pre code {
-  background: none;
-  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
 }
 .markdown table {
   border-collapse: collapse;
   width: 100%;
+  display: block;
+  overflow-x: auto;
 }
 .markdown th,
 .markdown td {
-  border: 1px solid var(--color-border-subtle);
-  padding: 0.4em 0.7em;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.5em 0.8em;
   text-align: left;
 }
+.markdown th {
+  font-weight: 600;
+}
 .markdown blockquote {
-  border-left: 3px solid #555;
+  border-left: 3px solid var(--text-tertiary);
   padding-left: 1em;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 .markdown hr {
-  border-color: var(--color-border-subtle);
+  border-color: var(--border-subtle);
+}
+.markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
 }
 
-.streaming-cursor::after {
-  content: '';
+/* highlight.js tokens (works in both themes) */
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+  color: #c678dd;
+}
+.light .hljs-keyword,
+.light .hljs-selector-tag,
+.light .hljs-literal,
+.light .hljs-built_in {
+  color: #a626a4;
+}
+.hljs-string,
+.hljs-attr-value,
+.hljs-regexp {
+  color: #98c379;
+}
+.light .hljs-string,
+.light .hljs-regexp {
+  color: #50a14f;
+}
+.hljs-number,
+.hljs-symbol {
+  color: #d19a66;
+}
+.light .hljs-number {
+  color: #986801;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #61afef;
+}
+.light .hljs-title,
+.light .hljs-section {
+  color: #4078f2;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-property,
+.hljs-type,
+.hljs-name {
+  color: #e5c07b;
+}
+.light .hljs-attr,
+.light .hljs-attribute,
+.light .hljs-variable,
+.light .hljs-property,
+.light .hljs-type,
+.light .hljs-name {
+  color: #c18401;
+}
+.hljs-meta,
+.hljs-tag {
+  color: #56b6c2;
+}
+
+.streaming-dot {
   display: inline-block;
-  width: 0.6em;
-  height: 0.6em;
-  margin-left: 0.2em;
+  width: 0.7em;
+  height: 0.7em;
   border-radius: 9999px;
-  background: var(--color-text-primary);
+  background: var(--text-primary);
   animation: pulse 1s ease-in-out infinite;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--text-tertiary) 0%, var(--text-primary) 50%, var(--text-tertiary) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
 }
 
 @keyframes pulse {
   50% {
     opacity: 0.3;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes orb {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
   }
 }
