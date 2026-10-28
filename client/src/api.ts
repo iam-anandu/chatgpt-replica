@@ -208,10 +208,11 @@ export const api = {
   restoreCanvas: (id: string, versionId: string) =>
     request<Canvas>(`/api/canvases/${id}/restore`, jsonBody('POST', { versionId })),
 
-  transcribe: async (audio: Blob, durationSeconds: number, filename: string) => {
+  transcribe: async (audio: Blob, durationSeconds: number, filename: string, peak?: number) => {
     const form = new FormData();
     form.append('audio', audio, filename);
     form.append('duration', String(Math.round(durationSeconds)));
+    if (peak !== undefined) form.append('peak', peak.toFixed(3));
     return request<{ text: string }>('/api/audio/transcribe', { method: 'POST', body: form });
   },
   speech: async (text: string, signal?: AbortSignal) => {

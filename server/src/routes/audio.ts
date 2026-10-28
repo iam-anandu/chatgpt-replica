@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { writeFile } from 'node:fs/promises';
+import { dirname, extname, join } from 'node:path';
 import { toFile } from 'openai';
 import { config } from '../config.js';
 import { getSettings } from '../db/settings.js';
@@ -19,14 +21,30 @@ audioRouter.post('/transcribe', upload.single('audio'), async (req, res) => {
       res.status(400).json({ error: "The recording was empty. Check that the right microphone is selected." });
       return;
     }
-    const result = await openai().audio.transcriptions.create({
-      model: config.transcribeModel,
-      file: await toFile(req.file.buffer, req.file.originalname || 'audio.webm', {
-        type: req.file.mimetype.split(';')[0],
-      }),
-    });
-    recordUsage({ audio_seconds: Number((req.body as { duration?: string }).duration) || 0 });
-    res.json({ text: result.text });
+    const { duration, peak } = req.body as { duration?: string; peak?: string };
+    const name = req.file.originalname || 'audio.webm';
+    const type = req.file.mimetype.split(';')[0];
+    await writeFile(join(dirname(config.dbPath), `last-dictation${extname(name)}`), req.file.buffer).catch(() => {});
+
+    const transcribe = async (model: string) =>
+      (
+        await openai().audio.transcriptions.create({
+          model,
+          file: await toFile(req.file!.buffer, name, { type }),
+        })
+      ).text.trim();
+
+    let text = await transcribe(config.transcribeModel);
+    let usedModel = config.transcribeModel;
+    if (!text && config.transcribeModel !== 'whisper-1') {
+      text = await transcribe('whisper-1');
+      usedModel = 'whisper-1';
+    }
+    console.log(
+      `[dictation] ${req.file.size} bytes, ${type}, ${duration}s, mic peak ${peak ?? '?'} -> ${usedModel}: ${JSON.stringify(text.slice(0, 80))}`,
+    );
+    recordUsage({ audio_seconds: Number(duration) || 0 });
+    res.json({ text });
   } catch (err) {
     res.status(500).json({ error: friendlyError(err) });
   }

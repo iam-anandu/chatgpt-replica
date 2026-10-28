@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { api, type Attachment, type ToolHint } from '../api';
 import { useApp } from '../store/app';
-import { audioFilename, microphoneError, useRecorder } from '../hooks/audio';
+import { SILENT_PEAK, audioFilename, microphoneError, useRecorder } from '../hooks/audio';
 import { AttachmentPreview } from './Message';
 import { Menu, MenuDivider, MenuItem } from './ui';
 
@@ -196,7 +196,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     try {
       const rec = await recorder.stop();
       if (!rec) return;
-      const { text: spoken } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type));
+      if (rec.peak < SILENT_PEAK) {
+        toast(
+          "Your microphone didn't pick up any sound. Choose the right microphone in Settings → General, or check that it isn't muted.",
+          'error',
+        );
+        return;
+      }
+      const { text: spoken } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type), rec.peak);
       const words = spoken.trim();
       if (!words) {
         toast("Didn't catch that. Try speaking a little closer to the mic.", 'error');

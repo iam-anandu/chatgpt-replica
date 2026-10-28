@@ -5,7 +5,17 @@ import { useApp } from '../store/app';
 export interface Recording {
   blob: Blob;
   seconds: number;
+  /** Loudest input level seen while recording (0..1). */
+  peak: number;
 }
+
+/** Below this peak the microphone delivered silence (muted, wrong device, or blocked by the OS). */
+export const SILENT_PEAK = 0.04;
+
+const MIC_KEY = 'micDeviceId';
+export const getMicDeviceId = () => localStorage.getItem(MIC_KEY) ?? '';
+export const setMicDeviceId = (id: string) =>
+  id ? localStorage.setItem(MIC_KEY, id) : localStorage.removeItem(MIC_KEY);
 
 const preferredMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
 
@@ -51,10 +61,18 @@ export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number }
     // Created before awaiting permission so it still counts as started by the user's click.
     const audioCtx = new AudioContext();
     let stream: MediaStream;
+    const deviceId = getMicDeviceId();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      stream = await navigator.mediaDevices
+        .getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true })
+        .catch((err) => {
+          // A saved microphone that was unplugged: fall back to the default one.
+          if (deviceId && (err as DOMException).name === 'OverconstrainedError') {
+            setMicDeviceId('');
+            return navigator.mediaDevices.getUserMedia({ audio: true });
+          }
+          throw err;
+        });
     } catch (err) {
       audioCtx.close();
       throw err;
@@ -65,10 +83,11 @@ export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number }
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
     recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
+    let maxLevel = 0;
     recorder.onstop = () => {
       const seconds = (Date.now() - startedRef.current) / 1000;
       const type = recorder.mimeType || mimeType || 'audio/webm';
-      resolveRef.current?.({ blob: new Blob(chunksRef.current, { type }), seconds });
+      resolveRef.current?.({ blob: new Blob(chunksRef.current, { type }), seconds, peak: maxLevel });
       resolveRef.current = null;
     };
 
@@ -90,6 +109,7 @@ export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number }
       const rms = Math.sqrt(sum / data.length);
       const normalized = Math.min(1, rms * 7);
       peak = Math.max(peak, normalized);
+      maxLevel = Math.max(maxLevel, normalized);
 
       const now = Date.now();
       if (now - lastSample >= SAMPLE_MS) {

@@ -43,7 +43,7 @@ export function VoiceMode() {
       const rec = await recorder.stop();
       if (!rec || rec.seconds < 0.6) return void listen();
       setPhase('transcribing');
-      const { text } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type));
+      const { text } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type), rec.peak);
       if (!activeRef.current) return;
       if (!text.trim()) return void listen();
       setCaption(text);

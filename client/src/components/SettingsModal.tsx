@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArchiveRestore, BarChart3, Database, Settings as SettingsIcon, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { api, type Conversation, type Memory, type UsageReport } from '../api';
 import { useApp, type SettingsTab } from '../store/app';
+import { SILENT_PEAK, getMicDeviceId, microphoneError, setMicDeviceId, useRecorder } from '../hooks/audio';
 import { Button, IconButton, Modal, Toggle, modelLabel } from './ui';
 
 const voices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse'];
@@ -42,6 +43,71 @@ function Select({ value, options, onChange }: { value: string; options: [string,
   );
 }
 
+function MicrophoneSetting() {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selected, setSelected] = useState(getMicDeviceId());
+  const recorder = useRecorder();
+
+  const loadDevices = async () => {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    setDevices(all.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications'));
+  };
+
+  useEffect(() => {
+    loadDevices();
+    navigator.mediaDevices.addEventListener('devicechange', loadDevices);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', loadDevices);
+  }, []);
+
+  const test = async () => {
+    if (recorder.recording) return void recorder.stop(true);
+    try {
+      await recorder.start();
+      loadDevices(); // labels become available after permission is granted
+    } catch (err) {
+      useApp.getState().toast(microphoneError(err), 'error');
+    }
+  };
+
+  return (
+    <div className="border-b border-border-subtle py-3.5">
+      <div className="flex items-center justify-between gap-6">
+        <div className="min-w-0">
+          <p className="text-sm">Microphone</p>
+          <p className="mt-0.5 text-xs text-text-tertiary">Used for dictation and voice mode. Press Test and speak.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={selected}
+            options={[
+              ['', 'System default'],
+              ...devices
+                .filter((d) => d.deviceId !== 'default')
+                .map((d, i): [string, string] => [d.deviceId, d.label || `Microphone ${i + 1}`]),
+            ]}
+            onChange={(id) => {
+              setSelected(id);
+              setMicDeviceId(id);
+              if (recorder.recording) recorder.stop(true);
+            }}
+          />
+          <Button onClick={test}>{recorder.recording ? 'Stop' : 'Test'}</Button>
+        </div>
+      </div>
+      {recorder.recording && (
+        <div className="mt-3 flex items-center gap-3">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface">
+            <div className="h-full bg-green-500 transition-[width] duration-75" style={{ width: `${recorder.level * 100}%` }} />
+          </div>
+          <span className="w-36 text-xs text-text-tertiary">
+            {recorder.level < SILENT_PEAK ? 'No sound detected…' : 'Picking up sound ✓'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function General() {
   const settings = useApp((s) => s.settings)!;
   const config = useApp((s) => s.config)!;
@@ -72,6 +138,7 @@ function General() {
       <Row label="Voice" description="Used for Read aloud and voice mode.">
         <Select value={settings.voice} options={voices.map((v) => [v, v[0].toUpperCase() + v.slice(1)])} onChange={(v) => update({ voice: v })} />
       </Row>
+      <MicrophoneSetting />
       <Row label="Web search" description="Let ChatGPT search the web automatically when it helps.">
         <Toggle checked={settings.webSearchAuto} onChange={(v) => update({ webSearchAuto: v })} />
       </Row>
