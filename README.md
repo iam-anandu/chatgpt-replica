@@ -10,7 +10,7 @@ See [PLAN.md](PLAN.md) for the full feature plan and build priorities.
 
 ## Getting started
 
-Requirements: Node.js 20+.
+Requirements: Node.js 22.13+ (uses the built-in `node:sqlite` module).
 
 ```bash
 npm install
@@ -25,7 +25,7 @@ npm run dev
 
 | Version | Features |
 |---|---|
-| 1.0 (in progress) | Project scaffold, ChatGPT-style layout, streamed chat responses |
+| 1.0 (in progress) | Project scaffold, SQLite schema, ChatGPT-style layout (sidebar, empty state, composer), streamed chat responses with stop, saved conversations in Recents |
 
 ## Note on cost
 

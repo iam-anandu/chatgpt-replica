@@ -1,0 +1,121 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --color-main: #0f0f0f;
+  --color-sidebar: #171717;
+  --color-surface: #2a2a2a;
+  --color-surface-hover: #212121;
+  --color-composer: #262626;
+  --color-border-subtle: #2e2e2e;
+  --color-text-primary: #ececec;
+  --color-text-secondary: #b4b4b4;
+  --color-text-tertiary: #8f8f8f;
+  --color-accent: #2f6fe0;
+  --color-user-bubble: #2a2a2a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-main);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
+}
+
+.markdown {
+  line-height: 1.75;
+}
+.markdown > * + * {
+  margin-top: 0.9em;
+}
+.markdown h1 {
+  font-size: 1.6em;
+  font-weight: 600;
+}
+.markdown h2 {
+  font-size: 1.35em;
+  font-weight: 600;
+}
+.markdown h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.markdown li + li {
+  margin-top: 0.3em;
+}
+.markdown a {
+  color: #7ab7ff;
+  text-decoration: underline;
+}
+.markdown code {
+  background: #2f2f2f;
+  border-radius: 0.3em;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+}
+.markdown pre {
+  background: #171717;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.75em;
+  padding: 1em;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--color-border-subtle);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.markdown blockquote {
+  border-left: 3px solid #555;
+  padding-left: 1em;
+  color: var(--color-text-secondary);
+}
+.markdown hr {
+  border-color: var(--color-border-subtle);
+}
+
+.streaming-cursor::after {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-left: 0.2em;
+  border-radius: 9999px;
+  background: var(--color-text-primary);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
