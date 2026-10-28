@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, ImagePlus, Loader2, PenLine, type LucideIcon } from 'lucide-react';
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, Globe, ImagePlus, Loader2, PenLine, type LucideIcon } from 'lucide-react';
 import type { ToolHint } from '../api';
 import { useApp } from '../store/app';
 import { pathTo, useChat } from '../store/chat';
@@ -14,37 +14,85 @@ const suggestions: { icon: LucideIcon; label: string; prompt: string; tool: Tool
   { icon: Globe, label: 'Search the web', prompt: '', tool: 'search' },
 ];
 
+const BOTTOM_THRESHOLD = 40;
+
 function MessageList() {
   const messages = useChat((s) => s.messages);
   const leafId = useChat((s) => s.leafId);
   const isStreaming = useChat((s) => s.isStreaming);
+  const conversationId = useChat((s) => s.conversationId);
   const path = useMemo(() => pathTo(messages, leafId), [messages, leafId]);
   const containerRef = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
+  // Follow new content only while the user hasn't scrolled away from the bottom.
+  const followRef = useRef(true);
+  // Where our own last auto-scroll landed, to tell it apart from the user scrolling up.
+  const autoScrollTopRef = useRef(0);
+  const [atBottom, setAtBottom] = useState(true);
 
-  useEffect(() => {
+  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
     const el = containerRef.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [path, isStreaming]);
+    if (!el) return;
+    autoScrollTopRef.current = el.scrollHeight - el.clientHeight;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  };
 
-  useEffect(() => {
-    stickToBottom.current = true;
-  }, [leafId]);
+  useLayoutEffect(() => {
+    if (followRef.current) scrollToBottom();
+  }, [path]);
+
+  // Re-attach when opening a chat or sending a new message.
+  useLayoutEffect(() => {
+    followRef.current = true;
+    setAtBottom(true);
+    scrollToBottom();
+  }, [conversationId]);
+
+  useLayoutEffect(() => {
+    if (!isStreaming) return;
+    followRef.current = true;
+    setAtBottom(true);
+    scrollToBottom();
+  }, [isStreaming]);
+
+  const detach = () => {
+    followRef.current = false;
+  };
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-      }}
-      className="scrollbar-thin flex-1 overflow-y-auto"
-    >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-4 pb-10">
-        {path.map((m, i) => (
-          <MessageView key={m.id} message={m} isLast={i === path.length - 1} />
-        ))}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={containerRef}
+        onWheel={(e) => e.deltaY < 0 && detach()}
+        onTouchMove={detach}
+        onKeyDown={(e) => ['ArrowUp', 'PageUp', 'Home'].includes(e.key) && detach()}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
+          setAtBottom(bottom);
+          if (bottom) followRef.current = true;
+          else if (el.scrollTop < autoScrollTopRef.current - 4) detach();
+        }}
+        className="scrollbar-thin flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-4 pb-10">
+          {path.map((m, i) => (
+            <MessageView key={m.id} message={m} isLast={i === path.length - 1} />
+          ))}
+        </div>
       </div>
+      {!atBottom && (
+        <button
+          type="button"
+          aria-label="Scroll to bottom"
+          onClick={() => {
+            followRef.current = true;
+            scrollToBottom('smooth');
+          }}
+          className="absolute bottom-4 left-1/2 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border-subtle bg-main text-text-primary shadow-lg hover:bg-surface-hover"
+        >
+          <ArrowDown size={18} />
+        </button>
+      )}
     </div>
   );
 }
