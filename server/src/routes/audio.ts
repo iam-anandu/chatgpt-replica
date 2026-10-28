@@ -15,9 +15,15 @@ audioRouter.post('/transcribe', upload.single('audio'), async (req, res) => {
   }
   try {
     checkLimit('voice');
+    if (req.file.size < 1000) {
+      res.status(400).json({ error: "The recording was empty. Check that the right microphone is selected." });
+      return;
+    }
     const result = await openai().audio.transcriptions.create({
       model: config.transcribeModel,
-      file: await toFile(req.file.buffer, req.file.originalname || 'audio.webm', { type: req.file.mimetype }),
+      file: await toFile(req.file.buffer, req.file.originalname || 'audio.webm', {
+        type: req.file.mimetype.split(';')[0],
+      }),
     });
     recordUsage({ audio_seconds: Number((req.body as { duration?: string }).duration) || 0 });
     res.json({ text: result.text });

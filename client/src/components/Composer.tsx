@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
   AudioLines,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { api, type Attachment, type ToolHint } from '../api';
 import { useApp } from '../store/app';
-import { useRecorder } from '../hooks/audio';
+import { audioFilename, microphoneError, useRecorder } from '../hooks/audio';
 import { AttachmentPreview } from './Message';
 import { Menu, MenuDivider, MenuItem } from './ui';
 
@@ -39,6 +39,88 @@ interface ComposerProps {
   onSubmit: (input: ComposerSubmit) => void;
   onStop: () => void;
   placeholder?: string;
+}
+
+const WAVEFORM_BARS = 72;
+
+function Dictation({
+  history,
+  elapsed,
+  transcribing,
+  onCancel,
+  onDone,
+}: {
+  history: number[];
+  elapsed: number;
+  transcribing: boolean;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (transcribing) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        onDone();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [transcribing, onCancel, onDone]);
+
+  const bars = [...Array(Math.max(0, WAVEFORM_BARS - history.length)).fill(null), ...history.slice(-WAVEFORM_BARS)];
+  const time = `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')}`;
+
+  return (
+    <div className="flex items-center gap-2" role="status" aria-live="polite">
+      <button
+        type="button"
+        title="Cancel (Esc)"
+        onClick={onCancel}
+        disabled={transcribing}
+        className="flex size-9 shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-surface hover:text-text-primary disabled:opacity-30"
+      >
+        <X size={18} />
+      </button>
+
+      <div className="relative flex h-9 min-w-0 flex-1 items-center justify-end gap-[3px] overflow-hidden px-1">
+        {bars.map((v, i) =>
+          v === null ? (
+            <span key={i} className="size-[3px] shrink-0 rounded-full bg-text-tertiary/40" />
+          ) : (
+            <span
+              key={i}
+              className={`w-[3px] shrink-0 rounded-full transition-[height] duration-75 ${transcribing ? 'bg-text-tertiary' : 'bg-text-primary'}`}
+              style={{ height: `${Math.max(3, Math.round(v * 30))}px` }}
+            />
+          ),
+        )}
+        {transcribing && (
+          <span className="absolute inset-0 flex items-center justify-center bg-composer/70">
+            <span className="shimmer text-sm font-medium">Transcribing…</span>
+          </span>
+        )}
+      </div>
+
+      <span className="flex w-14 shrink-0 items-center gap-1.5 text-sm text-text-secondary tabular-nums">
+        {!transcribing && <span className="size-2 animate-pulse rounded-full bg-red-500" />}
+        {time}
+      </span>
+
+      <button
+        type="button"
+        title="Done (Enter)"
+        onClick={onDone}
+        disabled={transcribing}
+        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-inverse text-on-inverse hover:opacity-80"
+      >
+        {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} strokeWidth={2.5} />}
+      </button>
+    </div>
+  );
 }
 
 const tools: Record<Exclude<ToolHint, null>, { label: string; icon: LucideIcon }> = {
@@ -106,23 +188,45 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setTool(null);
   };
 
+  const cursorRef = useRef<number | null>(null);
+
   const finishDictation = async () => {
-    const rec = await recorder.stop();
-    if (!rec) return;
+    if (transcribing) return;
     setTranscribing(true);
     try {
-      const { text: spoken } = await api.transcribe(rec.blob, rec.seconds);
-      setText((t) => (t ? `${t} ${spoken}` : spoken));
-      textareaRef.current?.focus();
+      const rec = await recorder.stop();
+      if (!rec) return;
+      const { text: spoken } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type));
+      const words = spoken.trim();
+      if (!words) {
+        toast("Didn't catch that. Try speaking a little closer to the mic.", 'error');
+        return;
+      }
+      const at = cursorRef.current ?? text.length;
+      setText((t) => {
+        const before = t.slice(0, at);
+        const after = t.slice(at);
+        const pad = (s: string, side: 'start' | 'end') =>
+          s && !(side === 'end' ? /\s$/.test(s) : /^\s/.test(s)) ? ' ' : '';
+        return `${before}${pad(before, 'end')}${words}${pad(after, 'start')}${after}`;
+      });
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
       setTranscribing(false);
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   };
 
-  const startDictation = () =>
-    recorder.start().catch(() => toast('Microphone access was denied.', 'error'));
+  const startDictation = () => {
+    cursorRef.current = textareaRef.current?.selectionStart ?? null;
+    recorder.start().catch((err) => toast(microphoneError(err), 'error'));
+  };
+
+  const cancelDictation = () => {
+    recorder.stop(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   const stacked = multiline || attachments.length > 0 || uploading > 0 || tool !== null;
   const circle = 'flex size-9 shrink-0 items-center justify-center rounded-full';
@@ -188,8 +292,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <Lightbulb size={17} strokeWidth={1.75} />
         Think
       </button>
-      <button type="button" title="Dictate" onClick={startDictation} className={iconButton} disabled={transcribing}>
-        {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} strokeWidth={1.75} />}
+      <button type="button" title="Dictate" aria-label="Dictate" onClick={startDictation} className={iconButton}>
+        <Mic size={18} strokeWidth={1.75} />
       </button>
       {isStreaming ? (
         <button type="button" title="Stop generating" onClick={onStop} className={`${circle} bg-inverse text-on-inverse`}>
@@ -256,24 +360,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       )}
 
-      {recorder.recording ? (
-        <div className="flex items-center gap-2">
-          <button type="button" title="Cancel" onClick={() => recorder.stop(true)} className={iconButton}>
-            <X size={18} />
-          </button>
-          <div className="flex h-9 flex-1 items-center gap-[3px] overflow-hidden px-2">
-            {Array.from({ length: 48 }, (_, i) => (
-              <span
-                key={i}
-                className="w-[3px] rounded-full bg-text-secondary transition-[height]"
-                style={{ height: `${4 + recorder.level * 28 * (0.4 + 0.6 * Math.abs(Math.sin(i * 1.7 + Date.now() / 300)))}px` }}
-              />
-            ))}
-          </div>
-          <button type="button" title="Done" onClick={finishDictation} className={`${circle} bg-inverse text-on-inverse`}>
-            <Check size={18} />
-          </button>
-        </div>
+      {recorder.recording || transcribing ? (
+        <Dictation
+          history={recorder.history}
+          elapsed={recorder.elapsed}
+          transcribing={transcribing}
+          onCancel={cancelDictation}
+          onDone={finishDictation}
+        />
       ) : (
         <div className={`flex ${stacked ? 'flex-col' : 'items-center'} gap-1`}>
           {!stacked && plusMenu}

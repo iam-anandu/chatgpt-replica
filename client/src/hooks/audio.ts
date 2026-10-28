@@ -7,10 +7,38 @@ export interface Recording {
   seconds: number;
 }
 
-/** Microphone recorder exposing a live input level (0..1) and optional end-of-speech detection. */
+const preferredMimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+
+export function audioFilename(mime: string): string {
+  if (mime.includes('ogg')) return 'audio.ogg';
+  if (mime.includes('mp4') || mime.includes('aac')) return 'audio.mp4';
+  if (mime.includes('wav')) return 'audio.wav';
+  if (mime.includes('mpeg')) return 'audio.mp3';
+  return 'audio.webm';
+}
+
+export function microphoneError(err: unknown): string {
+  const name = (err as DOMException)?.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone access is blocked. Allow it from the icon in the address bar, then try again.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone was found.';
+  if (name === 'NotReadableError') return 'Your microphone is being used by another app.';
+  return `Couldn't start the microphone: ${(err as Error)?.message ?? err}`;
+}
+
+const HISTORY_SIZE = 72;
+const SAMPLE_MS = 60;
+
+/**
+ * Microphone recorder exposing a live input level (0..1), a rolling level history for waveforms,
+ * elapsed time, and optional end-of-speech detection.
+ */
 export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number } = {}) {
   const [recording, setRecording] = useState(false);
   const [level, setLevel] = useState(0);
+  const [history, setHistory] = useState<number[]>([]);
+  const [elapsed, setElapsed] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedRef = useRef(0);
@@ -20,52 +48,83 @@ export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number }
   optsRef.current = opts;
 
   const start = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
+    // Created before awaiting permission so it still counts as started by the user's click.
+    const audioCtx = new AudioContext();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch (err) {
+      audioCtx.close();
+      throw err;
+    }
+    if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+
+    const mimeType = preferredMimeTypes.find((t) => MediaRecorder.isTypeSupported(t));
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
     recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
     recorder.onstop = () => {
       const seconds = (Date.now() - startedRef.current) / 1000;
-      resolveRef.current?.({ blob: new Blob(chunksRef.current, { type: recorder.mimeType }), seconds });
+      const type = recorder.mimeType || mimeType || 'audio/webm';
+      resolveRef.current?.({ blob: new Blob(chunksRef.current, { type }), seconds });
       resolveRef.current = null;
     };
 
-    const audioCtx = new AudioContext();
     const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    audioCtx.createMediaStreamSource(stream).connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.fftSize = 1024;
+    // Held by the cleanup closure: Chrome may garbage-collect an unreferenced source node and the meter goes silent.
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
     let raf = 0;
     let heardSpeech = false;
     let quietSince = Date.now();
+    let lastSample = 0;
+    let peak = 0;
     const tick = () => {
       analyser.getByteTimeDomainData(data);
       let sum = 0;
       for (const v of data) sum += ((v - 128) / 128) ** 2;
       const rms = Math.sqrt(sum / data.length);
-      setLevel(Math.min(1, rms * 6));
-      const speaking = rms > 0.03;
-      if (speaking) {
+      const normalized = Math.min(1, rms * 7);
+      peak = Math.max(peak, normalized);
+
+      const now = Date.now();
+      if (now - lastSample >= SAMPLE_MS) {
+        lastSample = now;
+        const sample = peak;
+        setLevel(sample);
+        setHistory((h) => [...h.slice(-(HISTORY_SIZE - 1)), sample]);
+        setElapsed((now - startedRef.current) / 1000);
+        peak = 0;
+      }
+
+      if (rms > 0.02) {
         heardSpeech = true;
-        quietSince = Date.now();
-      } else if (heardSpeech && optsRef.current.onSilence && Date.now() - quietSince > (optsRef.current.silenceMs ?? 1400)) {
+        quietSince = now;
+      } else if (heardSpeech && optsRef.current.onSilence && now - quietSince > (optsRef.current.silenceMs ?? 1400)) {
         heardSpeech = false;
         optsRef.current.onSilence();
       }
       raf = requestAnimationFrame(tick);
     };
-    tick();
 
     cleanupRef.current = () => {
       cancelAnimationFrame(raf);
+      source.disconnect();
       stream.getTracks().forEach((t) => t.stop());
-      audioCtx.close();
+      audioCtx.close().catch(() => {});
       setLevel(0);
     };
     recorderRef.current = recorder;
     startedRef.current = Date.now();
-    recorder.start();
+    setHistory([]);
+    setElapsed(0);
+    recorder.start(250);
     setRecording(true);
+    tick();
   }, []);
 
   /** Stops recording; resolves with the audio, or null when `discard` is set. */
@@ -83,7 +142,7 @@ export function useRecorder(opts: { onSilence?: () => void; silenceMs?: number }
 
   useEffect(() => () => void stop(true), [stop]);
 
-  return { recording, level, start, stop };
+  return { recording, level, history, elapsed, start, stop };
 }
 
 let current: { audio: HTMLAudioElement; id: string; abort: AbortController } | null = null;

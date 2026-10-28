@@ -4,7 +4,7 @@ import { Mic, MicOff, X } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store/app';
 import { useChat } from '../store/chat';
-import { speak, stopSpeaking, useRecorder } from '../hooks/audio';
+import { audioFilename, microphoneError, speak, stopSpeaking, useRecorder } from '../hooks/audio';
 
 type Phase = 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'muted';
 
@@ -30,8 +30,8 @@ export function VoiceMode() {
     setPhase('listening');
     try {
       await recorder.start();
-    } catch {
-      useApp.getState().toast('Microphone access was denied.', 'error');
+    } catch (err) {
+      useApp.getState().toast(microphoneError(err), 'error');
       setApp({ voiceModeOpen: false });
     }
   }, [recorder, setApp]);
@@ -43,7 +43,7 @@ export function VoiceMode() {
       const rec = await recorder.stop();
       if (!rec || rec.seconds < 0.6) return void listen();
       setPhase('transcribing');
-      const { text } = await api.transcribe(rec.blob, rec.seconds);
+      const { text } = await api.transcribe(rec.blob, rec.seconds, audioFilename(rec.blob.type));
       if (!activeRef.current) return;
       if (!text.trim()) return void listen();
       setCaption(text);

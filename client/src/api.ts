@@ -208,9 +208,9 @@ export const api = {
   restoreCanvas: (id: string, versionId: string) =>
     request<Canvas>(`/api/canvases/${id}/restore`, jsonBody('POST', { versionId })),
 
-  transcribe: async (audio: Blob, durationSeconds: number) => {
+  transcribe: async (audio: Blob, durationSeconds: number, filename: string) => {
     const form = new FormData();
-    form.append('audio', audio, 'audio.webm');
+    form.append('audio', audio, filename);
     form.append('duration', String(Math.round(durationSeconds)));
     return request<{ text: string }>('/api/audio/transcribe', { method: 'POST', body: form });
   },
